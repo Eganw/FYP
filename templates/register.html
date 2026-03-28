@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Register - Egan Auth</title>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f4f4f9; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .card { background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); width: 320px; text-align: center; }
+        input[type="text"], input[type="password"] { width: 90%; padding: 10px; margin: 10px 0; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        button { width: 100%; padding: 10px; background-color: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; margin-top: 10px; font-size: 16px; }
+        button:hover { background-color: #218838; }
+        .error { font-size: 0.9em; margin-bottom: 10px; }
+        .show-pwd-container { text-align: left; margin-left: 5%; font-size: 0.9em; color: #555; display: flex; align-items: center; gap: 5px; margin-bottom: 10px; }
+        .qr-container { background: #f8f9fa; padding: 15px; margin-bottom: 20px; border-radius: 8px; border: 1px solid #ddd; }
+        .qr-container img { width: 200px; height: 200px; }
+        .qr-container p { font-size: 0.85em; color: #28a745; margin-top: 10px; font-weight: bold; }
+        a { color: #007bff; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h2>Create Account</h2>
+        
+        {% if message %} 
+            <p class="error" style="color: {% if 'Account created' in message %}green{% else %}red{% endif %};">
+                {{ message }}
+            </p> 
+        {% endif %}
+        
+        {% if qr_code_image %}
+            <div class="qr-container">
+                <img src="{{ qr_code_image }}" alt="TOTP QR Code">
+                <p>Scan this in Google Authenticator or Authy!</p>
+            </div>
+        {% endif %}
+        
+        <form method="POST">
+            <input type="text" name="username" placeholder="Username" required>
+            
+            <input type="password" name="password" id="pwdInput" placeholder="Password" required>
+            
+            <div class="show-pwd-container">
+                <input type="checkbox" onclick="togglePassword()"> Show Password
+            </div>
+
+            <button type="submit">Register</button>
+        </form>
+        
+        <p style="margin-top: 20px; font-size: 0.9em;"><a href="/login">Already have an account? Log in</a></p>
+    </div>
+
+    <script>
+        function togglePassword() {
+            var pwdField = document.getElementById("pwdInput");
+            if (pwdField.type === "password") {
+                pwdField.type = "text";
+            } else {
+                pwdField.type = "password";
+            }
+        }
+    </script>
+</body>
+</html>
