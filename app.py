@@ -1,19 +1,18 @@
-from flask import Flask, render_template, request, redirect, url_for
+from flask import Flask, render_template, request, redirect, url_for, session
 import sys
 import qrcode
 import base64
 from io import BytesIO
+import pyotp  # NEW: For verifying the 6-digit code
 
-# CRITICAL FIX: Tell Python to look inside the 'build' folder for your C++ file!
-# This prevents the annoying "ModuleNotFoundError" we dealt with earlier.
 sys.path.append('./build')
 import egan_auth
 
 app = Flask(__name__)
+# NEW: Sessions require a secret key to sign the browser cookies securely
+app.secret_key = 'super_secret_development_key_change_in_production' 
 
-# Initialize your C++ Authentication Engine!
 auth_system = egan_auth.UserManager()
-
 # --- ROUTES ---
 
 @app.route('/')
@@ -60,15 +59,48 @@ def login():
         user = request.form['username']
         pwd = request.form['password']
         
-        # Send it to C++ to verify the Argon2id hash
+        # Step 1: Verify the password in C++
         if auth_system.verify_user(user, pwd):
-            # If true, show them a secure dashboard!
-            return f"<h1 style='text-align:center; margin-top:50px;'>Welcome to your secure dashboard, {user}!</h1>"
+            # PAUSE THE LOGIN! Save the user in a temporary session
+            session['pending_user'] = user
+            # Send them to the 2FA screen
+            return redirect(url_for('verify_2fa'))
         else:
             error_message = "Invalid username or password."
             
     return render_template('login.html', error_message=error_message)
 
+# NEW ROUTE: Process the 6-digit code
+@app.route('/verify_2fa', methods=['GET', 'POST'])
+def verify_2fa():
+    # If they bypassed the login screen, kick them back
+    if 'pending_user' not in session:
+        return redirect(url_for('login'))
+
+    error_message = None
+    user = session['pending_user']
+
+    if request.method == 'POST':
+        user_code = request.form['totp_code']
+        
+        # 1. Ask C++ for the user's secret
+        secret = auth_system.get_totp_secret(user)
+        
+        if not secret:
+            error_message = "2FA is not set up for this user."
+        else:
+            # 2. Use Python to verify if the 6-digit code matches the time
+            totp = pyotp.TOTP(secret)
+            if totp.verify(user_code):
+                # Success! Clear the pending state and log them in properly
+                session.pop('pending_user', None)
+                session['logged_in_user'] = user
+                
+                return f"<h1 style='text-align:center; margin-top:50px;'>Welcome to your secure dashboard, {user}!</h1>"
+            else:
+                error_message = "Invalid 6-digit code. Please try again."
+
+    return render_template('verify_2fa.html', error_message=error_message, username=user)
+
 if __name__ == '__main__':
-    # Run the web server on port 5000
     app.run(debug=True)

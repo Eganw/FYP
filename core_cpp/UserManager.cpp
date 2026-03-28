@@ -81,3 +81,10 @@ std::string UserManager::getTOTPUri(const std::string& username, const std::stri
     // This is the official RFC format for authenticator apps
     return "otpauth://totp/" + issuer + ":" + username + "?secret=" + secret + "&issuer=" + issuer;
 }
+
+std::string UserManager::getTOTPSecret(const std::string& username) {
+    if (totpDatabase.find(username) != totpDatabase.end()) {
+        return totpDatabase[username]; // Return the secret if found
+    }
+    return "";
+}
