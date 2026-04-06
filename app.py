@@ -23,52 +23,50 @@ def home():
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     message = None
-    qr_code_image = None # NEW: Variable to hold our QR image
+    qr_code_image = None
 
     if request.method == 'POST':
-        user = request.form['username']
+        email = request.form['email'] 
         pwd = request.form['password']
         
-        success = auth_system.register_user(user, pwd)
+        success = auth_system.register_user(email, pwd)
         
         if success:
-            # 1. Ask C++ to generate the secure secret
-            auth_system.generate_totp_secret(user)
-            # 2. Ask C++ to format the URI for Google Authenticator
-            uri = auth_system.get_totp_uri(user, "Egan_Auth_Project")
+            auth_system.generate_totp_secret(email)
+            uri = auth_system.get_totp_uri(email, "Egan_Auth_Project")
             
-            # 3. Use Python to draw the QR code in memory
             img = qrcode.make(uri)
             buf = BytesIO()
             img.save(buf, format="PNG")
             
-            # 4. Convert the image to a string so HTML can display it
             qr_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
             qr_code_image = f"data:image/png;base64,{qr_base64}"
             
             message = "Account created! Please scan this QR code with Google Authenticator or Authy."
         else:
-            message = "Username already exists. Try another."
+            message = "Email already exists. Try another."
             
     return render_template('register.html', message=message, qr_code_image=qr_code_image)
+
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     error_message = None
+    # Allow passing success messages (like after a password reset)
+    success_message = request.args.get('success_message') 
+
     if request.method == 'POST':
-        user = request.form['username']
+        # CHANGED: Look for 'email' instead of 'username'
+        email = request.form['email'] 
         pwd = request.form['password']
         
-        # Step 1: Verify the password in C++
-        if auth_system.verify_user(user, pwd):
-            # PAUSE THE LOGIN! Save the user in a temporary session
-            session['pending_user'] = user
-            # Send them to the 2FA screen
+        if auth_system.verify_user(email, pwd):
+            session['pending_user'] = email
             return redirect(url_for('verify_2fa'))
         else:
-            error_message = "Invalid username or password."
+            error_message = "Invalid email or password."
             
-    return render_template('login.html', error_message=error_message)
+    return render_template('login.html', error_message=error_message, success_message=success_message)
 
 # NEW ROUTE: Process the 6-digit code
 @app.route('/verify_2fa', methods=['GET', 'POST'])
