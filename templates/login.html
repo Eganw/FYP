@@ -19,10 +19,13 @@
         {% if error_message %} <p class="error">{{ error_message }}</p> {% endif %}
         {% if success_message %} <p class="success">{{ success_message }}</p> {% endif %}
 
-        <form method="POST">
+        <form id="loginForm" method="POST">
             <input type="email" name="email" placeholder="Email Address (e.g. name@gmail.com)" required>
             
-            <input type="password" name="password" id="pwdInput" placeholder="Password" required>
+            <input type="password" id="pwdInput" placeholder="Password" required>
+            
+            <input type="hidden" id="challengeInput" value="{{ challenge }}">
+            <input type="hidden" name="challenge_response" id="responseInput">
             
             <div class="show-pwd-container">
                 <input type="checkbox" onclick="togglePassword()"> Show Password
@@ -44,6 +47,39 @@
                 pwdField.type = "password";
             }
         }
+
+        // --- R6: Challenge-Handshake Client Logic ---
+        
+        // Helper function to create SHA-256 hashes in JavaScript
+        async function sha256(message) {
+            const msgBuffer = new TextEncoder().encode(message);
+            const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+
+        // Intercept the login button click
+        document.getElementById('loginForm').addEventListener('submit', async function(event) {
+            event.preventDefault(); // Stop the form from submitting immediately
+            
+            const pwd = document.getElementById('pwdInput').value;
+            const challenge = document.getElementById('challengeInput').value;
+            
+            // 1. Emulate the CHAP Secret (SHA256 of password)
+            const chapSecret = await sha256(pwd);
+            
+            // 2. Mathematically combine the secret with the server's challenge
+            const finalResponse = await sha256(chapSecret + challenge);
+            
+            // 3. Put the safe hash into the hidden input
+            document.getElementById('responseInput').value = finalResponse;
+            
+            // 4. DESTROY the plaintext password from the input field so it doesn't cross the network!
+            document.getElementById('pwdInput').value = "";
+            
+            // 5. Finally, submit the safe data to the server
+            this.submit();
+        });
     </script>
 </body>
 </html>
