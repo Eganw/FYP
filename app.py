@@ -157,11 +157,39 @@ def dashboard():
         return redirect(url_for('login'))
     
     email = session['logged_in_user']
-    
-    # Check if the user has a TOTP secret set up in C++
     has_totp = bool(auth_system.get_totp_secret(email))
     
-    return render_template('dashboard.html', email=email, has_totp=has_totp)
+    # NEW: Allow success messages to be passed here
+    success_message = request.args.get('success_message')
+    
+    return render_template('dashboard.html', email=email, has_totp=has_totp, success_message=success_message)
+
+# NEW ROUTE: Change Password
+@app.route('/change_password', methods=['GET', 'POST'])
+def change_password():
+    if 'logged_in_user' not in session:
+        return redirect(url_for('login'))
+        
+    email = session['logged_in_user']
+    error_message = None
+    
+    if request.method == 'POST':
+        old_response = request.form['challenge_response']
+        new_pwd = request.form['new_password']
+        challenge = session.get('change_pwd_challenge', '')
+        
+        # Step 1: Securely verify their old password using the R6 Handshake!
+        if auth_system.verify_challenge_response(email, challenge, old_response):
+            # Step 2: Update to the new password
+            auth_system.update_password(email, new_pwd)
+            return redirect(url_for('dashboard', success_message="Password updated successfully!"))
+        else:
+            error_message = "Incorrect current password."
+            
+    # GET Request: Generate a handshake challenge for the old password
+    new_challenge = auth_system.generate_challenge()
+    session['change_pwd_challenge'] = new_challenge
+    return render_template('change_password.html', challenge=new_challenge, error_message=error_message)
 
 @app.route('/logout')
 def logout():
