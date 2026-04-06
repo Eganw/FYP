@@ -118,33 +118,6 @@ std::string UserManager::generateResetToken(const std::string& email) {
     return token_str;
 }
 
-// R4: Verify the token and update the password
-bool UserManager::resetPassword(const std::string& email, const std::string& token, const std::string& newPassword) {
-    // 1. Check if the token exists and matches the one provided
-    if (resetTokens.find(email) == resetTokens.end() || resetTokens[email] != token) {
-        return false; // Invalid or expired token
-    }
-
-    // 2. Hash the new password
-    char hashed_password[crypto_pwhash_STRBYTES];
-    if (crypto_pwhash_str(
-            hashed_password, 
-            newPassword.c_str(), 
-            newPassword.length(),
-            crypto_pwhash_OPSLIMIT_INTERACTIVE, 
-            crypto_pwhash_MEMLIMIT_INTERACTIVE
-        ) != 0) {
-        return false; 
-    }
-
-    // 3. Update the database with the new password
-    userDatabase[email] = std::string(hashed_password);
-    
-    // 4. IMPORTANT: Erase the token so it cannot be reused (Single-Use!)
-    resetTokens.erase(email);
-    
-    return true;
-}
 
 // R6: Generate a random string for the login challenge
 std::string UserManager::generateChallenge() {
