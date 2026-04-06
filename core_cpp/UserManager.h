@@ -6,6 +6,7 @@ class UserManager {
 private: 
     std::unordered_map<std::string, std::string> userDatabase;
     std::unordered_map<std::string, std::string> totpDatabase; // Store TOTP secrets for users
+    std::unordered_map<std::string, std::string> resetTokens; // Store active reset tokens
 public:
     UserManager();
     bool registerUser(const std::string& username, const std::string& password);
@@ -14,6 +15,9 @@ public:
     std::string generateTOTPSecret(const std::string& username);
     std::string getTOTPUri(const std::string& username, const std::string& issuer);
     std::string getTOTPSecret(const std::string& username);
+
+    std::string generateResetToken(const std::string& email);
+    bool resetPassword(const std::string& email, const std::string& token, const std::string& newPassword);
 
 };
 

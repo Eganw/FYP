@@ -102,5 +102,47 @@ def verify_2fa():
 
     return render_template('verify_2fa.html', error_message=error_message, username=user)
 
+##R4: Forgot Password Flow
+@app.route('/forgot_password', methods=['GET', 'POST'])
+def forgot_password():
+    message = None
+    if request.method == 'POST':
+        email = request.form['email']
+        
+        # 1. Ask C++ to generate a token
+        token = auth_system.generate_reset_token(email)
+        
+        # 2. Simulate sending an email (To prevent user enumeration, we show the same message regardless)
+        message = "If an account exists for that email, a password reset link has been printed to the console."
+        
+        if token:
+            # Generate the full URL for the reset link
+            reset_link = url_for('reset_password', email=email, token=token, _external=True)
+            print("\n" + "="*50)
+            print("SIMULATED EMAIL NOTIFICATION")
+            print("="*50)
+            print(f"To: {email}")
+            print(f"Subject: Egan Auth Password Reset Request")
+            print(f"Body: Click the link below to reset your password.")
+            print(f"{reset_link}")
+            print("="*50 + "\n")
+
+    return render_template('forgot_password.html', message=message)
+
+@app.route('/reset_password/<email>/<token>', methods=['GET', 'POST'])
+def reset_password(email, token):
+    message = None
+    if request.method == 'POST':
+        new_pwd = request.form['password']
+        
+        # Pass the token back to C++ for verification
+        if auth_system.reset_password(email, token, new_pwd):
+            # Success! Redirect to login with a nice message
+            return redirect(url_for('login', success_message="Password reset successfully! Please log in."))
+        else:
+            message = "Invalid or expired reset token."
+
+    return render_template('reset_password.html', message=message, email=email)
+
 if __name__ == '__main__':
     app.run(debug=True)

@@ -12,5 +12,7 @@ PYBIND11_MODULE(egan_auth, m) {
         .def("verify_user", &UserManager::verifyUser, "Verify a user's password")
         .def("generate_totp_secret", &UserManager::generateTOTPSecret, "Generate Base32 secret")
         .def("get_totp_uri", &UserManager::getTOTPUri, "Get URI for QR Code generation")
-        .def("get_totp_secret", &UserManager::getTOTPSecret, "Retrieve a user's TOTP secret");
+        .def("get_totp_secret", &UserManager::getTOTPSecret, "Retrieve a user's TOTP secret")
+        .def("generate_reset_token", &UserManager::generateResetToken, "Generate a password reset token")
+        .def("reset_password", &UserManager::resetPassword, "Reset the user's password with a token");
 }

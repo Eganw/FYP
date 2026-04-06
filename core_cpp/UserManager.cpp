@@ -88,3 +88,53 @@ std::string UserManager::getTOTPSecret(const std::string& username) {
     }
     return "";
 }
+
+// R4: Generate a secure, random hex token for password resets
+std::string UserManager::generateResetToken(const std::string& email) {
+    // Only generate a token if the user actually exists
+    if (userDatabase.find(email) == userDatabase.end()) {
+        return ""; 
+    }
+
+    // Generate 16 bytes of cryptographically secure random data
+    unsigned char token_bytes[16];
+    randombytes_buf(token_bytes, sizeof(token_bytes));
+
+    // Convert those bytes into a readable 32-character hex string
+    char hex_token[33];
+    sodium_bin2hex(hex_token, sizeof(hex_token), token_bytes, sizeof(token_bytes));
+
+    std::string token_str(hex_token);
+    
+    // Save it to our database
+    resetTokens[email] = token_str;
+    return token_str;
+}
+
+// R4: Verify the token and update the password
+bool UserManager::resetPassword(const std::string& email, const std::string& token, const std::string& newPassword) {
+    // 1. Check if the token exists and matches the one provided
+    if (resetTokens.find(email) == resetTokens.end() || resetTokens[email] != token) {
+        return false; // Invalid or expired token
+    }
+
+    // 2. Hash the new password
+    char hashed_password[crypto_pwhash_STRBYTES];
+    if (crypto_pwhash_str(
+            hashed_password, 
+            newPassword.c_str(), 
+            newPassword.length(),
+            crypto_pwhash_OPSLIMIT_INTERACTIVE, 
+            crypto_pwhash_MEMLIMIT_INTERACTIVE
+        ) != 0) {
+        return false; 
+    }
+
+    // 3. Update the database with the new password
+    userDatabase[email] = std::string(hashed_password);
+    
+    // 4. IMPORTANT: Erase the token so it cannot be reused (Single-Use!)
+    resetTokens.erase(email);
+    
+    return true;
+}
