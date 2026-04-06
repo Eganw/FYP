@@ -23,6 +23,8 @@ public:
     std::string generateChallenge();
     bool verifyChallengeResponse(const std::string& email, const std::string& challenge, const std::string& response);
     
+    bool updatePassword(const std::string& email, const std::string& newPassword);
+    
 
 };
 

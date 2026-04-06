@@ -97,7 +97,8 @@ def verify_2fa():
                 session.pop('pending_user', None)
                 session['logged_in_user'] = user
                 
-                return f"<h1 style='text-align:center; margin-top:50px;'>Welcome to your secure dashboard, {user}!</h1>"
+                # CHANGED: Redirect to the new dashboard route instead of hardcoded HTML
+                return redirect(url_for('dashboard'))
             else:
                 error_message = "Invalid 6-digit code. Please try again."
 
@@ -144,6 +145,29 @@ def reset_password(email, token):
             message = "Invalid or expired reset token."
 
     return render_template('reset_password.html', message=message, email=email)
+
+# ==========================================
+# R10: SECURITY DASHBOARD
+# ==========================================
+
+@app.route('/dashboard')
+def dashboard():
+    # If the user isn't logged in, kick them back to login
+    if 'logged_in_user' not in session:
+        return redirect(url_for('login'))
+    
+    email = session['logged_in_user']
+    
+    # Check if the user has a TOTP secret set up in C++
+    has_totp = bool(auth_system.get_totp_secret(email))
+    
+    return render_template('dashboard.html', email=email, has_totp=has_totp)
+
+@app.route('/logout')
+def logout():
+    # Clear the session securely
+    session.pop('logged_in_user', None)
+    return redirect(url_for('login', success_message="You have been safely logged out."))
 
 if __name__ == '__main__':
     app.run(debug=True)

@@ -174,3 +174,46 @@ bool UserManager::verifyChallengeResponse(const std::string& email, const std::s
     // Check if what the browser computed matches what C++ computed
     return std::string(hex_expected) == response;
 }
+
+// ADD THIS TO THE BOTTOM OF YOUR FILE
+bool UserManager::updatePassword(const std::string& email, const std::string& newPassword) {
+    if (userDatabase.find(email) == userDatabase.end()) {
+        return false;
+    }
+
+    // 1. Hash the new password securely
+    char hashed_password[crypto_pwhash_STRBYTES];
+    if (crypto_pwhash_str(hashed_password, newPassword.c_str(), newPassword.length(), crypto_pwhash_OPSLIMIT_INTERACTIVE, crypto_pwhash_MEMLIMIT_INTERACTIVE) != 0) {
+        return false; 
+    }
+    userDatabase[email] = std::string(hashed_password);
+
+    // 2. Update the Challenge-Handshake Secret (R6)
+    unsigned char chap_hash[crypto_hash_sha256_BYTES];
+    crypto_hash_sha256(chap_hash, (const unsigned char*)newPassword.c_str(), newPassword.length());
+    char hex_chap[crypto_hash_sha256_BYTES * 2 + 1];
+    sodium_bin2hex(hex_chap, sizeof(hex_chap), chap_hash, sizeof(chap_hash));
+    chapSecrets[email] = std::string(hex_chap);
+
+    return true;
+}
+
+// FIND YOUR EXISTING resetPassword FUNCTION AND REPLACE IT WITH THIS:
+bool UserManager::resetPassword(const std::string& email, const std::string& token, const std::string& newPassword) {
+    if (resetTokens.find(email) == resetTokens.end() || resetTokens[email] != token) return false;
+
+    char hashed_password[crypto_pwhash_STRBYTES];
+    if (crypto_pwhash_str(hashed_password, newPassword.c_str(), newPassword.length(), crypto_pwhash_OPSLIMIT_INTERACTIVE, crypto_pwhash_MEMLIMIT_INTERACTIVE) != 0) return false; 
+    
+    userDatabase[email] = std::string(hashed_password);
+    resetTokens.erase(email);
+    
+    // --- BUG FIX: We must also update the R6 handshake secret here! ---
+    unsigned char chap_hash[crypto_hash_sha256_BYTES];
+    crypto_hash_sha256(chap_hash, (const unsigned char*)newPassword.c_str(), newPassword.length());
+    char hex_chap[crypto_hash_sha256_BYTES * 2 + 1];
+    sodium_bin2hex(hex_chap, sizeof(hex_chap), chap_hash, sizeof(chap_hash));
+    chapSecrets[email] = std::string(hex_chap);
+    
+    return true;
+}
