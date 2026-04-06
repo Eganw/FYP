@@ -15,4 +15,7 @@ PYBIND11_MODULE(egan_auth, m) {
         .def("get_totp_secret", &UserManager::getTOTPSecret, "Retrieve a user's TOTP secret")
         .def("generate_reset_token", &UserManager::generateResetToken, "Generate a password reset token")
         .def("reset_password", &UserManager::resetPassword, "Reset the user's password with a token");
+        .def("generate_challenge", &UserManager::generateChallenge, "Generate a random login challenge")
+        .def("verify_challenge_response", &UserManager::verifyChallengeResponse, "Verify the challenge response");
+        
 }

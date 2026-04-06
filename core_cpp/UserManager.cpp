@@ -33,6 +33,13 @@ bool UserManager::registerUser(const std::string& username, const std::string& p
 
     // Save the user and their securely hashed password to our database
     userDatabase[username] = std::string(hashed_password);
+
+    // --- R6 Addition: Store a SHA-256 hash of the password for the Challenge-Handshake ---
+    unsigned char chap_hash[crypto_hash_sha256_BYTES];
+    crypto_hash_sha256(chap_hash, (const unsigned char*)password.c_str(), password.length());
+    char hex_chap[crypto_hash_sha256_BYTES * 2 + 1];
+    sodium_bin2hex(hex_chap, sizeof(hex_chap), chap_hash, sizeof(chap_hash));
+    chapSecrets[username] = std::string(hex_chap);
     return true;
 }
 
@@ -137,4 +144,33 @@ bool UserManager::resetPassword(const std::string& email, const std::string& tok
     resetTokens.erase(email);
     
     return true;
+}
+
+// R6: Generate a random string for the login challenge
+std::string UserManager::generateChallenge() {
+    unsigned char challenge_bytes[16];
+    randombytes_buf(challenge_bytes, sizeof(challenge_bytes));
+    char hex_challenge[33];
+    sodium_bin2hex(hex_challenge, sizeof(hex_challenge), challenge_bytes, sizeof(challenge_bytes));
+    return std::string(hex_challenge);
+}
+
+// R6: Verify the client's HMAC-style response without seeing the plaintext password!
+bool UserManager::verifyChallengeResponse(const std::string& email, const std::string& challenge, const std::string& response) {
+    if (chapSecrets.find(email) == chapSecrets.end()) {
+        return false; 
+    }
+
+    // Mathematically combine the stored secret with the challenge we sent them
+    std::string chap_secret = chapSecrets[email];
+    std::string combined = chap_secret + challenge;
+    
+    unsigned char expected_hash[crypto_hash_sha256_BYTES];
+    crypto_hash_sha256(expected_hash, (const unsigned char*)combined.c_str(), combined.length());
+    
+    char hex_expected[crypto_hash_sha256_BYTES * 2 + 1];
+    sodium_bin2hex(hex_expected, sizeof(hex_expected), expected_hash, sizeof(expected_hash));
+
+    // Check if what the browser computed matches what C++ computed
+    return std::string(hex_expected) == response;
 }

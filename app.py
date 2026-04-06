@@ -52,21 +52,24 @@ def register():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     error_message = None
-    # Allow passing success messages (like after a password reset)
     success_message = request.args.get('success_message') 
 
     if request.method == 'POST':
-        # CHANGED: Look for 'email' instead of 'username'
         email = request.form['email'] 
-        pwd = request.form['password']
+        client_response = request.form['challenge_response'] # We read the HASH, not the password!
+        challenge = session.get('login_challenge', '')
         
-        if auth_system.verify_user(email, pwd):
+        # Step 1: Verify the challenge-response in C++ (R6)
+        if auth_system.verify_challenge_response(email, challenge, client_response):
             session['pending_user'] = email
             return redirect(url_for('verify_2fa'))
         else:
             error_message = "Invalid email or password."
             
-    return render_template('login.html', error_message=error_message, success_message=success_message)
+    # If it's a GET request (just loading the page), generate a fresh challenge
+    new_challenge = auth_system.generate_challenge()
+    session['login_challenge'] = new_challenge
+    return render_template('login.html', error_message=error_message, success_message=success_message, challenge=new_challenge)
 
 # NEW ROUTE: Process the 6-digit code
 @app.route('/verify_2fa', methods=['GET', 'POST'])
