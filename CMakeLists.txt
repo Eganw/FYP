@@ -8,6 +8,9 @@ find_package(pybind11 REQUIRED)
 find_library(SODIUM_LIB sodium)
 find_path(SODIUM_INCLUDE_DIR sodium.h)
 
+# NEW: Find SQLite3 (comes pre-installed on Mac)
+find_library(SQLITE_LIB sqlite3)
+
 # Tell CMake to compile BOTH our binding and our core logic
 pybind11_add_module(egan_auth 
     python_binding/binding.cpp 
@@ -16,4 +19,5 @@ pybind11_add_module(egan_auth
 
 # Link the libraries to our project
 target_include_directories(egan_auth PRIVATE ${SODIUM_INCLUDE_DIR} core_cpp)
-target_link_libraries(egan_auth PRIVATE ${SODIUM_LIB})
+# CHANGED: Added ${SQLITE_LIB} to the end of this line
+target_link_libraries(egan_auth PRIVATE ${SODIUM_LIB} ${SQLITE_LIB})

@@ -13,11 +13,9 @@ app = Flask(__name__)
 app.secret_key = 'super_secret_development_key_change_in_production' 
 
 auth_system = egan_auth.UserManager()
-# --- ROUTES ---
 
 @app.route('/')
 def home():
-    # If someone goes to the home page, redirect them straight to login
     return redirect(url_for('login'))
 
 @app.route('/register', methods=['GET', 'POST'])

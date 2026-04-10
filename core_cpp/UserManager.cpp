@@ -2,124 +2,155 @@
 #include <sodium.h>
 #include <iostream>
 
-// Constructor: Initializes the libsodium cryptography library
+// Constructor: Initializes cryptography and opens the database file
 UserManager::UserManager() {
     if (sodium_init() < 0) {
         std::cerr << "Panic: Cryptography library failed to initialize!" << std::endl;
     }
+
+    // Open (or create) the SQLite database file
+    if (sqlite3_open("egan_auth.db", &db) != SQLITE_OK) {
+        std::cerr << "Error opening database: " << sqlite3_errmsg(db) << std::endl;
+    }
+
+    // Create the users table if it doesn't exist
+    const char* sql = "CREATE TABLE IF NOT EXISTS users ("
+                      "email TEXT PRIMARY KEY, "
+                      "password_hash TEXT NOT NULL, "
+                      "chap_secret TEXT NOT NULL, "
+                      "totp_secret TEXT, "
+                      "reset_token TEXT);";
+    char* errMsg = nullptr;
+    if (sqlite3_exec(db, sql, nullptr, nullptr, &errMsg) != SQLITE_OK) {
+        std::cerr << "SQL error: " << errMsg << std::endl;
+        sqlite3_free(errMsg);
+    }
 }
 
-// R1 & R2: Register a user and hash their password securely
-bool UserManager::registerUser(const std::string& username, const std::string& password) {
-    // Check if user already exists
-    if (userDatabase.find(username) != userDatabase.end()) {
-        return false; 
+// Destructor ensures the database is safely closed when the app shuts down
+UserManager::~UserManager() {
+    if (db) {
+        sqlite3_close(db);
     }
+}
 
-    // Prepare an array to hold the hashed password. 
-    // crypto_pwhash_STRBYTES is the exact length needed for Argon2id.
+bool UserManager::registerUser(const std::string& email, const std::string& password) {
     char hashed_password[crypto_pwhash_STRBYTES];
+    if (crypto_pwhash_str(hashed_password, password.c_str(), password.length(), crypto_pwhash_OPSLIMIT_INTERACTIVE, crypto_pwhash_MEMLIMIT_INTERACTIVE) != 0) return false;
 
-    // Hash the password using Argon2id (Secure salting is built-in automatically!)
-    if (crypto_pwhash_str(
-            hashed_password, 
-            password.c_str(), 
-            password.length(),
-            crypto_pwhash_OPSLIMIT_INTERACTIVE, // CPU difficulty
-            crypto_pwhash_MEMLIMIT_INTERACTIVE  // Memory difficulty
-        ) != 0) {
-        return false; // Hashing failed (e.g., ran out of system memory)
-    }
-
-    // Save the user and their securely hashed password to our database
-    userDatabase[username] = std::string(hashed_password);
-
-    // --- R6 Addition: Store a SHA-256 hash of the password for the Challenge-Handshake ---
     unsigned char chap_hash[crypto_hash_sha256_BYTES];
     crypto_hash_sha256(chap_hash, (const unsigned char*)password.c_str(), password.length());
     char hex_chap[crypto_hash_sha256_BYTES * 2 + 1];
     sodium_bin2hex(hex_chap, sizeof(hex_chap), chap_hash, sizeof(chap_hash));
-    chapSecrets[username] = std::string(hex_chap);
-    return true;
+
+    const char* sql = "INSERT INTO users (email, password_hash, chap_secret) VALUES (?, ?, ?);";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+
+    sqlite3_bind_text(stmt, 1, email.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 2, hashed_password, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 3, hex_chap, -1, SQLITE_STATIC);
+
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
 }
 
-// R1: Verify a user's login attempt
-bool UserManager::verifyUser(const std::string& username, const std::string& password) {
-    // Find the user in the database
-    auto it = userDatabase.find(username);
-    if (it == userDatabase.end()) {
-        return false; // User not found
-    }
+bool UserManager::verifyUser(const std::string& email, const std::string& password) {
+    const char* sql = "SELECT password_hash FROM users WHERE email = ?;";
+    sqlite3_stmt* stmt;
+    bool isValid = false;
 
-    // Grab the saved Argon2id hash from the database
-    std::string saved_hash = it->second;
-
-    // libsodium compares the plaintext password against the saved hash securely
-    if (crypto_pwhash_str_verify(saved_hash.c_str(), password.c_str(), password.length()) == 0) {
-        return true; // Password matches!
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, email.c_str(), -1, SQLITE_STATIC);
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            const char* saved_hash = (const char*)sqlite3_column_text(stmt, 0);
+            if (saved_hash && crypto_pwhash_str_verify(saved_hash, password.c_str(), password.length()) == 0) {
+                isValid = true;
+            }
+        }
+        sqlite3_finalize(stmt);
     }
-    
-    return false; // Incorrect password
+    return isValid;
 }
 
-// R3: Generate a secure 16-character Base32 secret for Google Authenticator
-std::string UserManager::generateTOTPSecret(const std::string& username) {
+std::string UserManager::generateTOTPSecret(const std::string& email) {
     const char base32_chars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
     std::string secret = "";
-    
-    // Generate 16 random characters from the Base32 alphabet
     for(int i = 0; i < 16; i++) {
-        // libsodium's randombytes_uniform is cryptographically secure!
-        uint32_t random_index = randombytes_uniform(32); 
-        secret += base32_chars[random_index];
+        secret += base32_chars[randombytes_uniform(32)];
     }
     
-    // Save it to our in-memory database
-    totpDatabase[username] = secret;
+    const char* sql = "UPDATE users SET totp_secret = ? WHERE email = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, secret.c_str(), -1, SQLITE_STATIC);
+        sqlite3_bind_text(stmt, 2, email.c_str(), -1, SQLITE_STATIC);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+    }
     return secret;
 }
 
-// R3: Format the standard URI needed to generate a QR Code
-std::string UserManager::getTOTPUri(const std::string& username, const std::string& issuer) {
-    if (totpDatabase.find(username) == totpDatabase.end()) {
-        return ""; // User doesn't have a secret yet
+std::string UserManager::getTOTPSecret(const std::string& email) {
+    const char* sql = "SELECT totp_secret FROM users WHERE email = ?;";
+    sqlite3_stmt* stmt;
+    std::string secret = "";
+
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, email.c_str(), -1, SQLITE_STATIC);
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            const char* text = (const char*)sqlite3_column_text(stmt, 0);
+            if (text) secret = text;
+        }
+        sqlite3_finalize(stmt);
     }
-    std::string secret = totpDatabase[username];
-    // This is the official RFC format for authenticator apps
-    return "otpauth://totp/" + issuer + ":" + username + "?secret=" + secret + "&issuer=" + issuer;
+    return secret;
 }
 
-std::string UserManager::getTOTPSecret(const std::string& username) {
-    if (totpDatabase.find(username) != totpDatabase.end()) {
-        return totpDatabase[username]; // Return the secret if found
-    }
-    return "";
+std::string UserManager::getTOTPUri(const std::string& email, const std::string& issuer) {
+    std::string secret = getTOTPSecret(email);
+    if (secret.empty()) return "";
+    return "otpauth://totp/" + issuer + ":" + email + "?secret=" + secret + "&issuer=" + issuer;
 }
 
-// R4: Generate a secure, random hex token for password resets
 std::string UserManager::generateResetToken(const std::string& email) {
-    // Only generate a token if the user actually exists
-    if (userDatabase.find(email) == userDatabase.end()) {
-        return ""; 
-    }
-
-    // Generate 16 bytes of cryptographically secure random data
     unsigned char token_bytes[16];
     randombytes_buf(token_bytes, sizeof(token_bytes));
-
-    // Convert those bytes into a readable 32-character hex string
     char hex_token[33];
     sodium_bin2hex(hex_token, sizeof(hex_token), token_bytes, sizeof(token_bytes));
 
-    std::string token_str(hex_token);
-    
-    // Save it to our database
-    resetTokens[email] = token_str;
-    return token_str;
+    const char* sql = "UPDATE users SET reset_token = ? WHERE email = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, hex_token, -1, SQLITE_STATIC);
+        sqlite3_bind_text(stmt, 2, email.c_str(), -1, SQLITE_STATIC);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+    }
+    return std::string(hex_token);
 }
 
+bool UserManager::resetPassword(const std::string& email, const std::string& token, const std::string& newPassword) {
+    // 1. Verify token
+    const char* check_sql = "SELECT reset_token FROM users WHERE email = ?;";
+    sqlite3_stmt* check_stmt;
+    std::string saved_token = "";
+    if (sqlite3_prepare_v2(db, check_sql, -1, &check_stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(check_stmt, 1, email.c_str(), -1, SQLITE_STATIC);
+        if (sqlite3_step(check_stmt) == SQLITE_ROW) {
+            const char* t = (const char*)sqlite3_column_text(check_stmt, 0);
+            if (t) saved_token = t;
+        }
+        sqlite3_finalize(check_stmt);
+    }
 
-// R6: Generate a random string for the login challenge
+    if (saved_token.empty() || saved_token != token) return false;
+
+    // 2. Perform Update
+    return updatePassword(email, newPassword); 
+}
+
 std::string UserManager::generateChallenge() {
     unsigned char challenge_bytes[16];
     randombytes_buf(challenge_bytes, sizeof(challenge_bytes));
@@ -128,65 +159,52 @@ std::string UserManager::generateChallenge() {
     return std::string(hex_challenge);
 }
 
-// R6: Verify the client's HMAC-style response without seeing the plaintext password!
 bool UserManager::verifyChallengeResponse(const std::string& email, const std::string& challenge, const std::string& response) {
-    if (chapSecrets.find(email) == chapSecrets.end()) {
-        return false; 
+    const char* sql = "SELECT chap_secret FROM users WHERE email = ?;";
+    sqlite3_stmt* stmt;
+    std::string chap_secret = "";
+
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, email.c_str(), -1, SQLITE_STATIC);
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            const char* t = (const char*)sqlite3_column_text(stmt, 0);
+            if (t) chap_secret = t;
+        }
+        sqlite3_finalize(stmt);
     }
 
-    // Mathematically combine the stored secret with the challenge we sent them
-    std::string chap_secret = chapSecrets[email];
+    if (chap_secret.empty()) return false;
+
     std::string combined = chap_secret + challenge;
-    
     unsigned char expected_hash[crypto_hash_sha256_BYTES];
     crypto_hash_sha256(expected_hash, (const unsigned char*)combined.c_str(), combined.length());
-    
     char hex_expected[crypto_hash_sha256_BYTES * 2 + 1];
     sodium_bin2hex(hex_expected, sizeof(hex_expected), expected_hash, sizeof(expected_hash));
 
-    // Check if what the browser computed matches what C++ computed
     return std::string(hex_expected) == response;
 }
 
-// ADD THIS TO THE BOTTOM OF YOUR FILE
 bool UserManager::updatePassword(const std::string& email, const std::string& newPassword) {
-    if (userDatabase.find(email) == userDatabase.end()) {
-        return false;
-    }
-
-    // 1. Hash the new password securely
     char hashed_password[crypto_pwhash_STRBYTES];
-    if (crypto_pwhash_str(hashed_password, newPassword.c_str(), newPassword.length(), crypto_pwhash_OPSLIMIT_INTERACTIVE, crypto_pwhash_MEMLIMIT_INTERACTIVE) != 0) {
-        return false; 
-    }
-    userDatabase[email] = std::string(hashed_password);
+    if (crypto_pwhash_str(hashed_password, newPassword.c_str(), newPassword.length(), crypto_pwhash_OPSLIMIT_INTERACTIVE, crypto_pwhash_MEMLIMIT_INTERACTIVE) != 0) return false;
 
-    // 2. Update the Challenge-Handshake Secret (R6)
     unsigned char chap_hash[crypto_hash_sha256_BYTES];
     crypto_hash_sha256(chap_hash, (const unsigned char*)newPassword.c_str(), newPassword.length());
     char hex_chap[crypto_hash_sha256_BYTES * 2 + 1];
     sodium_bin2hex(hex_chap, sizeof(hex_chap), chap_hash, sizeof(chap_hash));
-    chapSecrets[email] = std::string(hex_chap);
 
-    return true;
-}
+    const char* sql = "UPDATE users SET password_hash = ?, chap_secret = ?, reset_token = NULL WHERE email = ?;";
+    sqlite3_stmt* stmt;
+    bool success = false;
 
-// FIND YOUR EXISTING resetPassword FUNCTION AND REPLACE IT WITH THIS:
-bool UserManager::resetPassword(const std::string& email, const std::string& token, const std::string& newPassword) {
-    if (resetTokens.find(email) == resetTokens.end() || resetTokens[email] != token) return false;
-
-    char hashed_password[crypto_pwhash_STRBYTES];
-    if (crypto_pwhash_str(hashed_password, newPassword.c_str(), newPassword.length(), crypto_pwhash_OPSLIMIT_INTERACTIVE, crypto_pwhash_MEMLIMIT_INTERACTIVE) != 0) return false; 
-    
-    userDatabase[email] = std::string(hashed_password);
-    resetTokens.erase(email);
-    
-    // --- BUG FIX: We must also update the R6 handshake secret here! ---
-    unsigned char chap_hash[crypto_hash_sha256_BYTES];
-    crypto_hash_sha256(chap_hash, (const unsigned char*)newPassword.c_str(), newPassword.length());
-    char hex_chap[crypto_hash_sha256_BYTES * 2 + 1];
-    sodium_bin2hex(hex_chap, sizeof(hex_chap), chap_hash, sizeof(chap_hash));
-    chapSecrets[email] = std::string(hex_chap);
-    
-    return true;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, hashed_password, -1, SQLITE_STATIC);
+        sqlite3_bind_text(stmt, 2, hex_chap, -1, SQLITE_STATIC);
+        sqlite3_bind_text(stmt, 3, email.c_str(), -1, SQLITE_STATIC);
+        if (sqlite3_step(stmt) == SQLITE_DONE && sqlite3_changes(db) > 0) {
+            success = true;
+        }
+        sqlite3_finalize(stmt);
+    }
+    return success;
 }
