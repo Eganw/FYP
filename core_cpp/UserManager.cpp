@@ -19,7 +19,7 @@ UserManager::UserManager() {
                       "password_hash TEXT NOT NULL, "
                       "chap_secret TEXT NOT NULL, "
                       "totp_secret TEXT, "
-                      "reset_token TEXT), "
+                      "reset_token TEXT, "
                       "phone_number TEXT, "    // NEW
                       "sms_code TEXT);";      // NEW
                       
