@@ -20,6 +20,9 @@ UserManager::UserManager() {
                       "chap_secret TEXT NOT NULL, "
                       "totp_secret TEXT, "
                       "reset_token TEXT);";
+                      "phone_number TEXT, "    // NEW
+                      "sms_code TEXT);";       // NEW
+                      
     char* errMsg = nullptr;
     if (sqlite3_exec(db, sql, nullptr, nullptr, &errMsg) != SQLITE_OK) {
         std::cerr << "SQL error: " << errMsg << std::endl;
@@ -207,4 +210,75 @@ bool UserManager::updatePassword(const std::string& email, const std::string& ne
         sqlite3_finalize(stmt);
     }
     return success;
+}
+
+
+// ==========================================
+// R7: SMS MFA IMPLEMENTATIONS
+// ==========================================
+
+bool UserManager::enrollSMS(const std::string& email, const std::string& phone) {
+    const char* sql = "UPDATE users SET phone_number = ? WHERE email = ?;";
+    sqlite3_stmt* stmt;
+    bool success = false;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, phone.c_str(), -1, SQLITE_STATIC);
+        sqlite3_bind_text(stmt, 2, email.c_str(), -1, SQLITE_STATIC);
+        if (sqlite3_step(stmt) == SQLITE_DONE && sqlite3_changes(db) > 0) success = true;
+        sqlite3_finalize(stmt);
+    }
+    return success;
+}
+
+std::string UserManager::getPhoneNumber(const std::string& email) {
+    const char* sql = "SELECT phone_number FROM users WHERE email = ?;";
+    sqlite3_stmt* stmt;
+    std::string phone = "";
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, email.c_str(), -1, SQLITE_STATIC);
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            const char* t = (const char*)sqlite3_column_text(stmt, 0);
+            if (t) phone = t;
+        }
+        sqlite3_finalize(stmt);
+    }
+    return phone;
+}
+
+std::string UserManager::generateSMSCode(const std::string& email) {
+    // Generate a mathematically secure 6-digit number (100000 to 999999)
+    uint32_t random_num = randombytes_uniform(900000) + 100000;
+    std::string code = std::to_string(random_num);
+
+    const char* sql = "UPDATE users SET sms_code = ? WHERE email = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, code.c_str(), -1, SQLITE_STATIC);
+        sqlite3_bind_text(stmt, 2, email.c_str(), -1, SQLITE_STATIC);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+    }
+    return code;
+}
+
+bool UserManager::verifySMSCode(const std::string& email, const std::string& code) {
+    const char* sql = "SELECT sms_code FROM users WHERE email = ?;";
+    sqlite3_stmt* stmt;
+    std::string saved_code = "";
+
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, email.c_str(), -1, SQLITE_STATIC);
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            const char* t = (const char*)sqlite3_column_text(stmt, 0);
+            if (t) saved_code = t;
+        }
+        sqlite3_finalize(stmt);
+    }
+
+    if (saved_code.empty() || saved_code != code) return false;
+
+    // Clear the code so it cannot be reused
+    const char* clear_sql = "UPDATE users SET sms_code = NULL WHERE email = ?;";
+    sqlite3_exec(db, clear_sql, nullptr, nullptr, nullptr);
+    return true;
 }

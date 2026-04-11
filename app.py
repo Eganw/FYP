@@ -69,38 +69,63 @@ def login():
     session['login_challenge'] = new_challenge
     return render_template('login.html', error_message=error_message, success_message=success_message, challenge=new_challenge)
 
-# NEW ROUTE: Process the 6-digit code
 @app.route('/verify_2fa', methods=['GET', 'POST'])
 def verify_2fa():
-    # If they bypassed the login screen, kick them back
     if 'pending_user' not in session:
         return redirect(url_for('login'))
 
     error_message = None
-    user = session['pending_user']
+    info_message = request.args.get('info_message') # Allow passing info messages
+    email = session['pending_user']
+    
+    # Check what MFA methods this user has available
+    has_totp = bool(auth_system.get_totp_secret(email))
+    enrolled_phone = auth_system.get_phone_number(email)
 
     if request.method == 'POST':
-        user_code = request.form['totp_code']
-        
-        # 1. Ask C++ for the user's secret
-        secret = auth_system.get_totp_secret(user)
-        
-        if not secret:
-            error_message = "2FA is not set up for this user."
-        else:
-            # 2. Use Python to verify if the 6-digit code matches the time
-            totp = pyotp.TOTP(secret)
-            if totp.verify(user_code):
-                # Success! Clear the pending state and log them in properly
+        # Did they submit an SMS code or an Authenticator code?
+        if 'sms_code' in request.form:
+            user_code = request.form['sms_code']
+            if auth_system.verify_sms_code(email, user_code):
                 session.pop('pending_user', None)
-                session['logged_in_user'] = user
-                
-                # CHANGED: Redirect to the new dashboard route instead of hardcoded HTML
+                session['logged_in_user'] = email
                 return redirect(url_for('dashboard'))
             else:
-                error_message = "Invalid 6-digit code. Please try again."
+                error_message = "Invalid or expired SMS code."
+                
+        elif 'totp_code' in request.form:
+            user_code = request.form['totp_code']
+            secret = auth_system.get_totp_secret(email)
+            totp = pyotp.TOTP(secret) if secret else None
+            
+            if totp and totp.verify(user_code):
+                session.pop('pending_user', None)
+                session['logged_in_user'] = email
+                return redirect(url_for('dashboard'))
+            else:
+                error_message = "Invalid Authenticator code."
 
-    return render_template('verify_2fa.html', error_message=error_message, username=user)
+    return render_template('verify_2fa.html', error_message=error_message, info_message=info_message, username=email, has_totp=has_totp, phone=enrolled_phone)
+
+@app.route('/send_sms')
+def send_sms():
+    if 'pending_user' not in session:
+        return redirect(url_for('login'))
+        
+    email = session['pending_user']
+    phone = auth_system.get_phone_number(email)
+    
+    if phone:
+        code = auth_system.generate_sms_code(email)
+        # Simulate an SMS Gateway (like Twilio)
+        print("\n" + "="*50)
+        print("📲 SIMULATED SMS TEXT MESSAGE 📲")
+        print("="*50)
+        print(f"To: {phone}")
+        print(f"Message: Your Egan Auth security code is: {code}")
+        print("="*50 + "\n")
+        
+    return redirect(url_for('verify_2fa', info_message=f"An SMS code has been sent to {phone}"))
 
 ##R4: Forgot Password Flow
 @app.route('/forgot_password', methods=['GET', 'POST'])
@@ -150,17 +175,24 @@ def reset_password(email, token):
 
 @app.route('/dashboard')
 def dashboard():
-    # If the user isn't logged in, kick them back to login
     if 'logged_in_user' not in session:
         return redirect(url_for('login'))
     
     email = session['logged_in_user']
     has_totp = bool(auth_system.get_totp_secret(email))
-    
-    # NEW: Allow success messages to be passed here
+    enrolled_phone = auth_system.get_phone_number(email)
     success_message = request.args.get('success_message')
     
-    return render_template('dashboard.html', email=email, has_totp=has_totp, success_message=success_message)
+    return render_template('dashboard.html', email=email, has_totp=has_totp, phone=enrolled_phone, success_message=success_message)
+
+@app.route('/enroll_sms', methods=['POST'])
+def enroll_sms():
+    if 'logged_in_user' not in session: return redirect(url_for('login'))
+    email = session['logged_in_user']
+    phone = request.form['phone_number']
+    
+    auth_system.enroll_sms(email, phone)
+    return redirect(url_for('dashboard', success_message="Phone number enrolled for SMS MFA!"))
 
 # NEW ROUTE: Change Password
 @app.route('/change_password', methods=['GET', 'POST'])

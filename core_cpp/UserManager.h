@@ -24,4 +24,9 @@ public:
     bool verifyChallengeResponse(const std::string& email, const std::string& challenge, const std::string& response);
     
     bool updatePassword(const std::string& email, const std::string& newPassword);
+
+    bool enrollSMS(const std::string& email, const std::string& phone);
+    std::string getPhoneNumber(const std::string& email);
+    std::string generateSMSCode(const std::string& email);
+    bool verifySMSCode(const std::string& email, const std::string& code);
 };

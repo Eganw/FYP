@@ -54,8 +54,15 @@
             </div>
             
             <div class="setting-row">
-                <span class="setting-label">Hardware Security Key</span>
-                <span class="setting-status disabled">Not Configured</span>
+                <span class="setting-label">SMS Text Messaging</span>
+                {% if phone %}
+                    <span class="setting-status">Enrolled ({{ phone }})</span>
+                {% else %}
+                    <form action="/enroll_sms" method="POST" style="display:flex; gap:5px;">
+                        <input type="text" name="phone_number" placeholder="+44 7700 900077" required style="padding: 4px; border: 1px solid #ccc; border-radius: 4px;">
+                        <button type="submit" class="action-btn">Enroll</button>
+                    </form>
+                {% endif %}
             </div>
         </div>
 

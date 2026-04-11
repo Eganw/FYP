@@ -19,8 +19,24 @@
         {% if error_message %} <p class="error">{{ error_message }}</p> {% endif %}
 
         <form method="POST">
+            {% if info_message %} <p style="color: green; font-size: 0.9em; font-weight: bold;">{{ info_message }}</p> {% endif %}
+
+        {% if has_totp %}
+        <form method="POST" style="margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid #eee;">
+            <p style="font-size: 0.8em; color: #555; margin: 0 0 5px 0;">Use Authenticator App:</p>
             <input type="text" name="totp_code" placeholder="000000" maxlength="6" autocomplete="off" required>
-            <button type="submit">Verify Code</button>
+            <button type="submit">Verify App Code</button>
+        </form>
+        {% endif %}
+
+        {% if phone %}
+        <form method="POST">
+            <p style="font-size: 0.8em; color: #555; margin: 0 0 5px 0;">Use Text Message ({{ phone }}):</p>
+            <input type="text" name="sms_code" placeholder="000000" maxlength="6" autocomplete="off" required>
+            <button type="submit" style="background-color: #28a745;">Verify SMS Code</button>
+        </form>
+        <p style="margin-top: 10px; font-size: 0.85em;"><a href="/send_sms">Click here to send an SMS code</a></p>
+        {% endif %}
         </form>
         <p style="margin-top: 15px;"><a href="/login" style="font-size: 0.8em; color: #007bff; text-decoration: none;">Cancel and return to login</a></p>
     </div>
