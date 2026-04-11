@@ -14,12 +14,10 @@
 <body>
     <div class="card">
         <h2>Two-Factor Authentication</h2>
-        <p style="font-size: 0.9em; color: #555;">Enter the 6-digit code from your authenticator app for <strong>{{ username }}</strong>.</p>
+        <p style="font-size: 0.9em; color: #555;">Enter the 6-digit security code for <strong>{{ username }}</strong>.</p>
         
         {% if error_message %} <p class="error">{{ error_message }}</p> {% endif %}
-
-        <form method="POST">
-            {% if info_message %} <p style="color: green; font-size: 0.9em; font-weight: bold;">{{ info_message }}</p> {% endif %}
+        {% if info_message %} <p style="color: green; font-size: 0.9em; font-weight: bold;">{{ info_message }}</p> {% endif %}
 
         {% if has_totp %}
         <form method="POST" style="margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid #eee;">
@@ -37,7 +35,7 @@
         </form>
         <p style="margin-top: 10px; font-size: 0.85em;"><a href="/send_sms">Click here to send an SMS code</a></p>
         {% endif %}
-        </form>
+
         <p style="margin-top: 15px;"><a href="/login" style="font-size: 0.8em; color: #007bff; text-decoration: none;">Cancel and return to login</a></p>
     </div>
 </body>
