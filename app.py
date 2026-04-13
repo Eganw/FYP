@@ -3,14 +3,22 @@ import sys
 import qrcode
 import base64
 from io import BytesIO
-import pyotp  # NEW: For verifying the 6-digit code
+import pyotp 
+import os                      # NEW: For reading environment variables
+from dotenv import load_dotenv # NEW: For loading the .env file
+from twilio.rest import Client # NEW: For Twilio SMS
+import smtplib                 # NEW: For Gmail
+from email.message import EmailMessage
+
+# Load the environment variables from the .env file
+load_dotenv()
 
 sys.path.append('./build')
 import egan_auth
 
 app = Flask(__name__)
-# NEW: Sessions require a secret key to sign the browser cookies securely
-app.secret_key = 'super_secret_development_key_change_in_production' 
+# NEW: Pull the secret key securely from the .env file
+app.secret_key = os.getenv('FLASK_SECRET_KEY', 'fallback_default_key')
 
 auth_system = egan_auth.UserManager()
 
@@ -117,13 +125,25 @@ def send_sms():
     
     if phone:
         code = auth_system.generate_sms_code(email)
-        # Simulate an SMS Gateway (like Twilio)
-        print("\n" + "="*50)
-        print("📲 SIMULATED SMS TEXT MESSAGE 📲")
-        print("="*50)
-        print(f"To: {phone}")
-        print(f"Message: Your Egan Auth security code is: {code}")
-        print("="*50 + "\n")
+        
+        # Pull Twilio credentials securely from .env
+        account_sid = os.getenv('TWILIO_ACCOUNT_SID')
+        auth_token = os.getenv('TWILIO_AUTH_TOKEN')
+        twilio_number = os.getenv('TWILIO_PHONE_NUMBER')
+        
+        if account_sid and auth_token:
+            try:
+                client = Client(account_sid, auth_token)
+                message = client.messages.create(
+                    body=f"Your Egan Auth security code is: {code}",
+                    from_=twilio_number,
+                    to=phone
+                )
+                print(f"Twilio message sent! SID: {message.sid}")
+            except Exception as e:
+                print(f"Failed to send real SMS: {e}")
+        else:
+            print(f"SIMULATED SMS: To {phone} - Code: {code}")
         
     return redirect(url_for('verify_2fa', info_message=f"An SMS code has been sent to {phone}"))
 
@@ -133,26 +153,36 @@ def forgot_password():
     message = None
     if request.method == 'POST':
         email = request.form['email']
-        
-        # 1. Ask C++ to generate a token
         token = auth_system.generate_reset_token(email)
         
-        # 2. Simulate sending an email (To prevent user enumeration, we show the same message regardless)
-        message = "If an account exists for that email, a password reset link has been printed to the console."
+        message = "If an account exists for that email, a password reset link has been sent."
         
         if token:
-            # Generate the full URL for the reset link
             reset_link = url_for('reset_password', email=email, token=token, _external=True)
-            print("\n" + "="*50)
-            print("SIMULATED EMAIL NOTIFICATION")
-            print("="*50)
-            print(f"To: {email}")
-            print(f"Subject: Egan Auth Password Reset Request")
-            print(f"Body: Click the link below to reset your password.")
-            print(f"{reset_link}")
-            print("="*50 + "\n")
+            
+            # Pull Gmail credentials securely from .env
+            sender_email = os.getenv('GMAIL_SENDER_EMAIL')
+            app_password = os.getenv('GMAIL_APP_PASSWORD')
+            
+            if sender_email and app_password:
+                msg = EmailMessage()
+                msg.set_content(f"Hello,\n\nClick the link below to reset your password:\n\n{reset_link}")
+                msg['Subject'] = 'Egan Auth Password Reset Request'
+                msg['From'] = sender_email
+                msg['To'] = email
+
+                try:
+                    with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
+                        smtp.login(sender_email, app_password)
+                        smtp.send_message(msg)
+                    print(f"Real email sent successfully to {email}!")
+                except Exception as e:
+                    print(f"Failed to send email: {e}")
+            else:
+                print(f"SIMULATED EMAIL: To {email} - Link: {reset_link}")
 
     return render_template('forgot_password.html', message=message)
+
 
 @app.route('/reset_password/<email>/<token>', methods=['GET', 'POST'])
 def reset_password(email, token):
