@@ -1,14 +1,14 @@
 #pragma once
 #include <string>
-#include <sqlite3.h> // NEW: Include SQLite
+#include <sqlite3.h>
 
 class UserManager {
 private: 
-    sqlite3* db; // NEW: The database connection pointer
+    sqlite3* db;
 
 public:
     UserManager();
-    ~UserManager(); // NEW: Destructor to cleanly close the database
+    ~UserManager(); 
 
     bool registerUser(const std::string& email, const std::string& password);
     bool verifyUser(const std::string& email, const std::string& password);

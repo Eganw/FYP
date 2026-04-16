@@ -4,20 +4,19 @@ import qrcode
 import base64
 from io import BytesIO
 import pyotp 
-import os                      # NEW: For reading environment variables
-from dotenv import load_dotenv # NEW: For loading the .env file
-from twilio.rest import Client # NEW: For Twilio SMS
-import smtplib                 # NEW: For Gmail
+import os                      
+from dotenv import load_dotenv 
+from twilio.rest import Client 
+import smtplib                 
 from email.message import EmailMessage
 
-# Load the environment variables from the .env file
 load_dotenv()
 
 sys.path.append('./build')
 import egan_auth
 
 app = Flask(__name__)
-# NEW: Pull the secret key securely from the .env file
+
 app.secret_key = os.getenv('FLASK_SECRET_KEY', 'fallback_default_key')
 
 auth_system = egan_auth.UserManager()
@@ -83,15 +82,13 @@ def verify_2fa():
         return redirect(url_for('login'))
 
     error_message = None
-    info_message = request.args.get('info_message') # Allow passing info messages
+    info_message = request.args.get('info_message')
     email = session['pending_user']
     
-    # Check what MFA methods this user has available
     has_totp = bool(auth_system.get_totp_secret(email))
     enrolled_phone = auth_system.get_phone_number(email)
 
     if request.method == 'POST':
-        # Did they submit an SMS code or an Authenticator code?
         if 'sms_code' in request.form:
             user_code = request.form['sms_code']
             if auth_system.verify_sms_code(email, user_code):
@@ -126,7 +123,6 @@ def send_sms():
     if phone:
         code = auth_system.generate_sms_code(email)
         
-        # Pull Twilio credentials securely from .env
         account_sid = os.getenv('TWILIO_ACCOUNT_SID')
         auth_token = os.getenv('TWILIO_AUTH_TOKEN')
         twilio_number = os.getenv('TWILIO_PHONE_NUMBER')
@@ -147,7 +143,6 @@ def send_sms():
         
     return redirect(url_for('verify_2fa', info_message=f"An SMS code has been sent to {phone}"))
 
-##R4: Forgot Password Flow
 @app.route('/forgot_password', methods=['GET', 'POST'])
 def forgot_password():
     message = None
@@ -160,7 +155,6 @@ def forgot_password():
         if token:
             reset_link = url_for('reset_password', email=email, token=token, _external=True)
             
-            # Pull Gmail credentials securely from .env
             sender_email = os.getenv('GMAIL_SENDER_EMAIL')
             app_password = os.getenv('GMAIL_APP_PASSWORD')
             
@@ -190,18 +184,13 @@ def reset_password(email, token):
     if request.method == 'POST':
         new_pwd = request.form['password']
         
-        # Pass the token back to C++ for verification
         if auth_system.reset_password(email, token, new_pwd):
-            # Success! Redirect to login with a nice message
             return redirect(url_for('login', success_message="Password reset successfully! Please log in."))
         else:
             message = "Invalid or expired reset token."
 
     return render_template('reset_password.html', message=message, email=email)
 
-# ==========================================
-# R10: SECURITY DASHBOARD
-# ==========================================
 
 @app.route('/dashboard')
 def dashboard():
@@ -224,7 +213,6 @@ def enroll_sms():
     auth_system.enroll_sms(email, phone)
     return redirect(url_for('dashboard', success_message="Phone number enrolled for SMS MFA!"))
 
-# NEW ROUTE: Change Password
 @app.route('/change_password', methods=['GET', 'POST'])
 def change_password():
     if 'logged_in_user' not in session:
@@ -238,22 +226,18 @@ def change_password():
         new_pwd = request.form['new_password']
         challenge = session.get('change_pwd_challenge', '')
         
-        # Step 1: Securely verify their old password using the R6 Handshake!
         if auth_system.verify_challenge_response(email, challenge, old_response):
-            # Step 2: Update to the new password
             auth_system.update_password(email, new_pwd)
             return redirect(url_for('dashboard', success_message="Password updated successfully!"))
         else:
             error_message = "Incorrect current password."
             
-    # GET Request: Generate a handshake challenge for the old password
     new_challenge = auth_system.generate_challenge()
     session['change_pwd_challenge'] = new_challenge
     return render_template('change_password.html', challenge=new_challenge, error_message=error_message)
 
 @app.route('/logout')
 def logout():
-    # Clear the session securely
     session.pop('logged_in_user', None)
     return redirect(url_for('login', success_message="You have been safely logged out."))
 

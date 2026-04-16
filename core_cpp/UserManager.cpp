@@ -2,26 +2,23 @@
 #include <sodium.h>
 #include <iostream>
 
-// Constructor: Initializes cryptography and opens the database file
 UserManager::UserManager() {
     if (sodium_init() < 0) {
         std::cerr << "Panic: Cryptography library failed to initialize!" << std::endl;
     }
 
-    // Open (or create) the SQLite database file
     if (sqlite3_open("egan_auth.db", &db) != SQLITE_OK) {
         std::cerr << "Error opening database: " << sqlite3_errmsg(db) << std::endl;
     }
 
-    // Create the users table if it doesn't exist
     const char* sql = "CREATE TABLE IF NOT EXISTS users ("
                       "email TEXT PRIMARY KEY, "
                       "password_hash TEXT NOT NULL, "
                       "chap_secret TEXT NOT NULL, "
                       "totp_secret TEXT, "
                       "reset_token TEXT, "
-                      "phone_number TEXT, "    // NEW
-                      "sms_code TEXT);";      // NEW
+                      "phone_number TEXT, "    
+                      "sms_code TEXT);";      
                       
     char* errMsg = nullptr;
     if (sqlite3_exec(db, sql, nullptr, nullptr, &errMsg) != SQLITE_OK) {
@@ -30,7 +27,6 @@ UserManager::UserManager() {
     }
 }
 
-// Destructor ensures the database is safely closed when the app shuts down
 UserManager::~UserManager() {
     if (db) {
         sqlite3_close(db);
@@ -135,7 +131,6 @@ std::string UserManager::generateResetToken(const std::string& email) {
 }
 
 bool UserManager::resetPassword(const std::string& email, const std::string& token, const std::string& newPassword) {
-    // 1. Verify token
     const char* check_sql = "SELECT reset_token FROM users WHERE email = ?;";
     sqlite3_stmt* check_stmt;
     std::string saved_token = "";
@@ -150,7 +145,6 @@ bool UserManager::resetPassword(const std::string& email, const std::string& tok
 
     if (saved_token.empty() || saved_token != token) return false;
 
-    // 2. Perform Update
     return updatePassword(email, newPassword); 
 }
 
@@ -213,9 +207,6 @@ bool UserManager::updatePassword(const std::string& email, const std::string& ne
 }
 
 
-// ==========================================
-// R7: SMS MFA IMPLEMENTATIONS
-// ==========================================
 
 bool UserManager::enrollSMS(const std::string& email, const std::string& phone) {
     const char* sql = "UPDATE users SET phone_number = ? WHERE email = ?;";
@@ -246,7 +237,6 @@ std::string UserManager::getPhoneNumber(const std::string& email) {
 }
 
 std::string UserManager::generateSMSCode(const std::string& email) {
-    // Generate a mathematically secure 6-digit number (100000 to 999999)
     uint32_t random_num = randombytes_uniform(900000) + 100000;
     std::string code = std::to_string(random_num);
 
@@ -277,7 +267,6 @@ bool UserManager::verifySMSCode(const std::string& email, const std::string& cod
 
     if (saved_code.empty() || saved_code != code) return false;
 
-    // Clear the code so it cannot be reused
     const char* clear_sql = "UPDATE users SET sms_code = NULL WHERE email = ?;";
     sqlite3_exec(db, clear_sql, nullptr, nullptr, nullptr);
     return true;
